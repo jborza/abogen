@@ -200,12 +200,19 @@ class TTSAdapterRegistry:
             # Create a temporary instance to get info (don't store it)
             adapter = self._adapters[adapter_id]()
 
+            config_schema = adapter.get_configuration_schema()
+            # Handle both dict and schema object returns
+            if isinstance(config_schema, dict):
+                schema = config_schema
+            else:
+                schema = config_schema.get_schema()
+
             return {
                 "id": adapter_id,
                 "name": adapter.name,
                 "type": adapter.adapter_type,
                 "class": adapter.__class__.__name__,
-                "configuration_schema": adapter.get_configuration_schema().get_schema(),
+                "configuration_schema": schema,
             }
         except Exception as e:
             self._logger.error(f"Error getting info for adapter '{adapter_id}': {e}")
@@ -289,9 +296,31 @@ class TTSAdapterRegistry:
             from abogen.tts_adapters.kokoro_adapter import KokoroAdapter
 
             self.register_adapter("kokoro", KokoroAdapter)
-            self._logger.info("Registered default adapters")
+            self._logger.info("Registered Kokoro adapter")
         except ImportError as e:
-            self._logger.error(f"Failed to import default adapters: {e}")
+            self._logger.error(f"Failed to import Kokoro adapter: {e}")
+        
+        # Register cloud adapters (soft-fail if dependencies not available)
+        try:
+            from abogen.tts_adapters.openai_adapter import OpenAIAdapter
+
+            self.register_adapter("openai", OpenAIAdapter)
+            self._logger.info("Registered OpenAI adapter")
+        except ImportError as e:
+            self._logger.debug(f"OpenAI adapter not available: {e}")
+        except Exception as e:
+            self._logger.debug(f"Failed to register OpenAI adapter: {e}")
+        
+        # Register local model adapters (soft-fail if dependencies not available)
+        try:
+            from abogen.tts_adapters.coqui_adapter import CoquiTTSAdapter
+
+            self.register_adapter("coqui", CoquiTTSAdapter)
+            self._logger.info("Registered Coqui TTS adapter")
+        except ImportError as e:
+            self._logger.debug(f"Coqui TTS adapter not available: {e}")
+        except Exception as e:
+            self._logger.debug(f"Failed to register Coqui TTS adapter: {e}")
 
     def __del__(self):
         """Clean up resources when registry is destroyed"""

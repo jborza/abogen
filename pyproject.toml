@@ -77,6 +77,8 @@ pattern = "^(?P<version>.+)$"
 [project.optional-dependencies]
 # Cloud TTS Adapters
 cloud = ["openai", "scipy"]
+# Local TTS Models (Coqui TTS - requires Python 3.10+)
+local = ["coqui-tts"]
 # NVIDIA GPU (Windows) (CUDA 12.6)       # uv tool install abogen[cuda126]
 cuda126 = ["torch"]
 # NVIDIA GPU (Windows) (CUDA 12.8)       # uv tool install abogen[cuda]
