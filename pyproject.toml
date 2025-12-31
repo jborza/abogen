@@ -75,6 +75,8 @@ pattern = "^(?P<version>.+)$"
 # --- OPTIONAL DEPENDENCIES ---
 
 [project.optional-dependencies]
+# Cloud TTS Adapters
+cloud = ["openai", "scipy"]
 # NVIDIA GPU (Windows) (CUDA 12.6)       # uv tool install abogen[cuda126]
 cuda126 = ["torch"]
 # NVIDIA GPU (Windows) (CUDA 12.8)       # uv tool install abogen[cuda]

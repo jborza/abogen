@@ -1721,13 +1721,35 @@ class abogen(QWidget):
             idx = self.voice_combo.findData(f"profile:{self.selected_profile_name}")
         elif current:
             idx = self.voice_combo.findData(current)
+        
+        # If previous voice/profile not found, select first available voice
+        if idx < 0:
+            # Prefer first non-profile voice
+            for i in range(self.voice_combo.count()):
+                data = self.voice_combo.itemData(i)
+                if data and not isinstance(data, str) or not data.startswith("profile:"):
+                    idx = i
+                    break
+            # If still nothing, just select first item
+            if idx < 0:
+                idx = 0
+        
         if idx >= 0:
             self.voice_combo.setCurrentIndex(idx)
-            # Also update subtitle combo for selected profile
+            # Update selected voice in memory and config
             data = self.voice_combo.itemData(idx)
             if isinstance(data, str) and data.startswith("profile:"):
                 pname = data.split(":", 1)[1]
+                self.selected_profile_name = pname
+                self.config["selected_profile_name"] = pname
                 self.update_subtitle_combo_for_profile(pname)
+            else:
+                self.selected_voice = data
+                self.config["selected_voice"] = data
+                if data and len(data) > 0:
+                    self.selected_lang = data[0]
+            save_config(self.config)
+        
         self.voice_combo.blockSignals(False)
         # If no profiles exist, clear selected_profile_name from config
         if not load_profiles():
@@ -3462,6 +3484,8 @@ class abogen(QWidget):
         """Show the TTS adapter settings dialog."""
         try:
             dialog = TTSAdapterSettingsDialog(self)
+            # Connect signal to reload voices when adapter changes
+            dialog.adapter_changed.connect(self.populate_profiles_in_voice_combo)
             dialog.exec()
         except Exception as e:
             QMessageBox.critical(

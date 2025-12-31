@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QCheckBox,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 
 from abogen.tts_adapters.registry import TTSAdapterRegistry
 from abogen.tts_settings import get_tts_config_manager, TTSConfig
@@ -28,6 +28,9 @@ from abogen.voice_manager import VoiceManager
 
 class TTSAdapterSettingsDialog(QDialog):
     """Dialog for selecting and configuring TTS adapters."""
+    
+    # Signal emitted when adapter settings are applied
+    adapter_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -173,6 +176,7 @@ class TTSAdapterSettingsDialog(QDialog):
             return
         
         schema = adapter_info.get('configuration_schema', {})
+        required_fields = schema.get('required_fields', {})
         optional_fields = schema.get('optional_fields', {})
 
         # Add description
@@ -182,29 +186,68 @@ class TTSAdapterSettingsDialog(QDialog):
             desc_label.setWordWrap(True)
             self.adapter_settings_layout.addRow(desc_label)
 
-        # Add optional fields
+        # Add required fields
         self.adapter_field_widgets = {}
         
-        for field_name, field_config in optional_fields.items():
-            field_type = field_config.get('type', 'string')
-            default_value = field_config.get('default', '')
-            description = field_config.get('description', '')
+        if required_fields:
+            # Add required fields section
+            required_label = QLabel("Required Fields:")
+            required_font = required_label.font()
+            required_font.setBold(True)
+            required_label.setFont(required_font)
+            self.adapter_settings_layout.addRow(required_label)
             
-            # Create widget based on field type
-            if field_type == 'boolean':
-                widget = QCheckBox(description)
-                widget.setChecked(default_value == True or default_value == 'true')
-            else:
-                widget = QLineEdit()
-                widget.setText(str(default_value))
-                widget.setToolTip(description)
+            for field_name, field_config in required_fields.items():
+                field_type = field_config.get('type', 'string')
+                default_value = field_config.get('default', '')
+                description = field_config.get('description', '')
+                
+                # Create widget based on field type
+                if field_type == 'boolean':
+                    widget = QCheckBox(description)
+                    widget.setChecked(default_value == True or default_value == 'true')
+                else:
+                    widget = QLineEdit()
+                    widget.setPlaceholderText(description)
+                    widget.setText(str(default_value))
+                    widget.setToolTip(description)
+                
+                self.adapter_field_widgets[field_name] = widget
+                
+                if field_type != 'boolean':
+                    self.adapter_settings_layout.addRow(field_name + " *", widget)
+                else:
+                    self.adapter_settings_layout.addRow(widget)
+        
+        # Add optional fields
+        if optional_fields:
+            # Add optional fields section
+            optional_label = QLabel("Optional Fields:")
+            optional_font = optional_label.font()
+            optional_font.setBold(True)
+            optional_label.setFont(optional_font)
+            self.adapter_settings_layout.addRow(optional_label)
             
-            self.adapter_field_widgets[field_name] = widget
-            
-            if field_type != 'boolean':
-                self.adapter_settings_layout.addRow(field_name, widget)
-            else:
-                self.adapter_settings_layout.addRow(widget)
+            for field_name, field_config in optional_fields.items():
+                field_type = field_config.get('type', 'string')
+                default_value = field_config.get('default', '')
+                description = field_config.get('description', '')
+                
+                # Create widget based on field type
+                if field_type == 'boolean':
+                    widget = QCheckBox(description)
+                    widget.setChecked(default_value == True or default_value == 'true')
+                else:
+                    widget = QLineEdit()
+                    widget.setText(str(default_value))
+                    widget.setToolTip(description)
+                
+                self.adapter_field_widgets[field_name] = widget
+                
+                if field_type != 'boolean':
+                    self.adapter_settings_layout.addRow(field_name, widget)
+                else:
+                    self.adapter_settings_layout.addRow(widget)
 
     def on_adapter_changed(self, index):
         """Handle adapter selection change."""
@@ -275,16 +318,19 @@ class TTSAdapterSettingsDialog(QDialog):
                 self.tts_config.adapter_configs[adapter_id][field_name] = value
             
             # Save configuration
-            self.config_manager.update_configuration(self.tts_config)
+            self.config_manager.save_configuration(self.tts_config)
             
             # Clear adapter cache to force reinitialization
             self.registry.clear_instances()
             
+            # Emit signal to notify main GUI to reload voices
+            self.adapter_changed.emit()
+            
             QMessageBox.information(
                 self,
                 "Settings Applied",
-                f"TTS adapter has been changed to {adapter_info['name']}.\n"
-                "This will take effect the next time you generate audio."
+                f"TTS adapter has been changed to {adapter_info['name']}.\n\n"
+                "Please restart Abogen for the voice list to update and settings to take full effect."
             )
             
         except Exception as e:

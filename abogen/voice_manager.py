@@ -42,7 +42,12 @@ class VoiceManager:
             
             # Get the active adapter
             registry = TTSAdapterRegistry.get_instance()
-            adapter = registry.get_adapter(tts_config.active_adapter)
+            
+            # Get the saved config for this adapter
+            adapter_config = tts_config.adapter_configs.get(tts_config.active_adapter, {})
+            
+            # Get adapter with saved config
+            adapter = registry.get_adapter(tts_config.active_adapter, config=adapter_config)
             
             # Get voices from adapter
             voices = adapter.get_voices(language_code=language_code)
