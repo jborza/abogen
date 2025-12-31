@@ -82,7 +82,6 @@ from abogen.constants import (
     GITHUB_URL,
     PROGRAM_DESCRIPTION,
     LANGUAGE_DESCRIPTIONS,
-    VOICES_INTERNAL,
     SUPPORTED_LANGUAGES_FOR_SUBTITLE_GENERATION,
     COLORS,
     SUBTITLE_FORMATS,
@@ -90,6 +89,7 @@ from abogen.constants import (
 import threading
 from abogen.voice_formula_gui import VoiceFormulaDialog
 from abogen.voice_profiles import load_profiles
+from abogen.voice_manager import VoiceManager
 
 # Import ctypes for Windows-specific taskbar icon
 if platform.system() == "Windows":
@@ -1706,13 +1706,14 @@ class abogen(QWidget):
         profile_icon = QIcon(get_resource_path("abogen.assets", "profile.png"))
         for pname in load_profiles().keys():
             self.voice_combo.addItem(profile_icon, pname, f"profile:{pname}")
-        # re-add voices
-        for v in VOICES_INTERNAL:
+        # re-add voices from the active adapter
+        voices = VoiceManager.get_available_voices()
+        for voice_info in voices:
             icon = QIcon()
-            flag_path = get_resource_path("abogen.assets.flags", f"{v[0]}.png")
+            flag_path = get_resource_path("abogen.assets.flags", f"{voice_info['language_code']}.png")
             if flag_path and os.path.exists(flag_path):
                 icon = QIcon(flag_path)
-            self.voice_combo.addItem(icon, f"{v}", v)
+            self.voice_combo.addItem(icon, voice_info['id'], voice_info['id'])
         # restore selection
         idx = -1
         if self.selected_profile_name:

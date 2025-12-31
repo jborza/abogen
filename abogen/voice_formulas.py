@@ -1,5 +1,5 @@
 import re
-from abogen.constants import VOICES_INTERNAL
+from abogen.voice_manager import VoiceManager
 
 
 # Calls parsing and loads the voice to gpu or cpu
@@ -37,7 +37,7 @@ def parse_voice_formula(pipeline, formula):
         voice_name = voice_name.strip()
 
         # Get the voice tensor
-        if voice_name not in VOICES_INTERNAL:
+        if not VoiceManager.is_valid_voice(voice_name):
             raise ValueError(f"Unknown voice: {voice_name}")
 
         voice_tensor = pipeline.load_single_voice(voice_name)

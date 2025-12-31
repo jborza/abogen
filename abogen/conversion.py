@@ -27,6 +27,10 @@ import threading  # for efficient waiting
 import subprocess
 import platform
 
+# TTS Adapter System
+from abogen.tts_adapters.registry import TTSAdapterRegistry, get_tts_adapter
+from abogen.tts_settings import get_tts_config_manager, get_tts_config
+
 # Configuration constants
 _USER_RESPONSE_TIMEOUT = (
     0.1  # Timeout in seconds for checking user response/cancellation
@@ -245,6 +249,38 @@ class ConversionThread(QThread):
         else:
             return r"\n+"  # Default to line breaks
 
+    def _create_tts_wrapper(self):
+        """
+        Create a wrapper function that mimics the old KPipeline interface
+        but uses the adapter system internally.
+        
+        This maintains backward compatibility with existing code that calls tts().
+        """
+        def tts_wrapper(text, voice, speed=1.0, split_pattern=None):
+            """
+            Wrapper function that calls the adapter's generate_audio method
+            while maintaining the original interface.
+            """
+            for audio_result in self.adapter.generate_audio(
+                text=text,
+                voice=voice,
+                speed=speed,
+                split_pattern=split_pattern,
+                lang_code=self.lang_code,
+            ):
+                # The adapter returns AudioResult objects
+                # Convert to a format compatible with the rest of the code
+                # by creating a simple object with 'audio' and 'graphemes' attributes
+                class Result:
+                    def __init__(self, audio_data, graphemes=""):
+                        self.audio = audio_data
+                        self.graphemes = graphemes
+                
+                graphemes = audio_result.metadata.get("graphemes", "") if audio_result.metadata else ""
+                yield Result(audio_result.audio, graphemes)
+        
+        return tts_wrapper
+
     def __init__(
         self,
         file_name,
@@ -267,7 +303,8 @@ class ConversionThread(QThread):
         self._chapter_options_event = threading.Event()
         self._timestamp_response_event = threading.Event()
         self.np = np_module
-        self.KPipeline = kpipeline_class
+        self.KPipeline = kpipeline_class  # Keep for backward compatibility
+        self.adapter = None  # Will be initialized during run()
         self.file_name = file_name
         self.lang_code = lang_code
         self.speed = speed
@@ -461,7 +498,11 @@ class ConversionThread(QThread):
 
             self.log_updated.emit(("\nInitializing TTS pipeline...", "grey"))
 
-            # Set device based on use_gpu setting and platform
+            # Initialize TTS adapter
+            config_manager = get_tts_config_manager()
+            tts_config = config_manager.get_configuration()
+            
+            # Get device preference or determine automatically
             if self.use_gpu:
                 if platform.system() == "Darwin" and platform.processor() == "arm":
                     device = "mps"  # Use MPS for Apple Silicon
@@ -469,10 +510,23 @@ class ConversionThread(QThread):
                     device = "cuda"  # Use CUDA for other platforms
             else:
                 device = "cpu"
-
-            tts = self.KPipeline(
-                lang_code=self.lang_code, repo_id="hexgrad/Kokoro-82M", device=device
-            )
+            
+            # Get adapter configuration and initialize
+            adapter_config = config_manager.get_adapter_config(tts_config.active_adapter)
+            if "device" not in adapter_config:
+                adapter_config["device"] = device
+            
+            # Initialize the adapter
+            try:
+                self.adapter = get_tts_adapter(tts_config.active_adapter, config=adapter_config)
+                self.log_updated.emit(f"Using TTS adapter: {self.adapter.name}")
+            except Exception as e:
+                self.log_updated.emit((f"Failed to initialize TTS adapter: {str(e)}", "red"))
+                self.conversion_finished.emit("Error", None)
+                return
+            
+            # For backward compatibility, create a wrapper tts function
+            tts = self._create_tts_wrapper()
 
             # Check if the input is a subtitle file or timestamp text file
             is_subtitle_file = False
@@ -1436,6 +1490,13 @@ class ConversionThread(QThread):
                 pass
             self.log_updated.emit((f"Error occurred: {str(e)}", "red"))
             self.conversion_finished.emit(("Audio generation failed.", "red"), None)
+        finally:
+            # Clean up TTS adapter resources
+            if self.adapter:
+                try:
+                    self.adapter.cleanup()
+                except Exception as e:
+                    self.log_updated.emit((f"Error cleaning up TTS adapter: {str(e)}", "yellow"))
 
     def _process_subtitle_file(self, tts, base_path, is_timestamp_text=False):
         """Process subtitle files with precise timing and generate output subtitles."""
@@ -2386,9 +2447,13 @@ class VoicePreviewThread(QThread):
         )
 
         # Generate the preview and save to cache
+        adapter = None
         try:
-
-            # Set device based on use_gpu setting and platform
+            # Get TTS configuration and adapter
+            config_manager = get_tts_config_manager()
+            tts_config = config_manager.get_configuration()
+            
+            # Determine device
             if self.use_gpu:
                 if platform.system() == "Darwin" and platform.processor() == "arm":
                     device = "mps"  # Use MPS for Apple Silicon
@@ -2396,19 +2461,24 @@ class VoicePreviewThread(QThread):
                     device = "cuda"  # Use CUDA for other platforms
             else:
                 device = "cpu"
-
-            tts = self.kpipeline_class(
-                lang_code=self.lang_code, repo_id="hexgrad/Kokoro-82M", device=device
-            )
+            
+            # Initialize adapter
+            adapter_config = config_manager.get_adapter_config(tts_config.active_adapter)
+            if "device" not in adapter_config:
+                adapter_config["device"] = device
+            
+            adapter = get_tts_adapter(tts_config.active_adapter, config=adapter_config)
+            
             # Enable voice formula support for preview
             if "*" in self.voice:
-                loaded_voice = get_new_voice(tts, self.voice, self.use_gpu)
+                loaded_voice = get_new_voice(adapter, self.voice, self.use_gpu)
             else:
                 loaded_voice = self.voice
+            
             sample_text = get_sample_voice_text(self.lang_code)
             audio_segments = []
-            for result in tts(
-                sample_text, voice=loaded_voice, speed=self.speed, split_pattern=None
+            for result in adapter.generate_audio(
+                sample_text, voice=loaded_voice, speed=self.speed, split_pattern=None, lang_code=self.lang_code
             ):
                 audio_segments.append(result.audio)
             if audio_segments:
@@ -2419,6 +2489,13 @@ class VoicePreviewThread(QThread):
             self.finished.emit()
         except Exception as e:
             self.error.emit(f"Voice preview error: {str(e)}")
+        finally:
+            # Clean up adapter resources
+            if adapter:
+                try:
+                    adapter.cleanup()
+                except Exception:
+                    pass
 
 
 class PlayAudioThread(QThread):
