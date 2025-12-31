@@ -90,6 +90,7 @@ import threading
 from abogen.voice_formula_gui import VoiceFormulaDialog
 from abogen.voice_profiles import load_profiles
 from abogen.voice_manager import VoiceManager
+from abogen.tts_adapter_settings_gui import TTSAdapterSettingsDialog, TTSAdapterStatusWidget
 
 # Import ctypes for Windows-specific taskbar icon
 if platform.system() == "Windows":
@@ -3246,6 +3247,11 @@ class abogen(QWidget):
         max_lines_action.triggered.connect(self.set_max_log_lines)
         menu.addAction(max_lines_action)
 
+        # Add TTS adapter settings option
+        tts_settings_action = QAction("TTS Adapter Settings", self)
+        tts_settings_action.triggered.connect(self.show_tts_adapter_settings)
+        menu.addAction(tts_settings_action)
+
         # Add separator
         menu.addSeparator()
 
@@ -3451,6 +3457,18 @@ class abogen(QWidget):
                 QMessageBox.critical(
                     self, "Restart Failed", f"Failed to restart the application:\n{e}"
                 )
+
+    def show_tts_adapter_settings(self):
+        """Show the TTS adapter settings dialog."""
+        try:
+            dialog = TTSAdapterSettingsDialog(self)
+            dialog.exec()
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "TTS Settings Error",
+                f"Failed to open TTS adapter settings:\n{str(e)}"
+            )
 
     def reset_to_default_settings(self):
         reply = QMessageBox.question(

@@ -198,7 +198,10 @@ class KokoroAdapter(LocalTTSAdapter):
 
             # Determine device
             if device == "auto":
-                device = self._determine_device()
+                # Check if device is specified in config, otherwise auto-detect
+                device = config.get("device", None)
+                if not device or device == "auto":
+                    device = self._determine_device()
             self.log_info(f"Using device: {device}")
 
             # Initialize the pipeline
@@ -299,13 +302,19 @@ class KokoroAdapter(LocalTTSAdapter):
             # Set language for the pipeline
             self._pipeline.lang_code = lang_code
 
-            # Handle voice formulas (weighted voice mixing)
-            if "*" in voice:
-                loaded_voice = self._load_voice_formula(voice)
+            # Handle voice formulas (weighted voice mixing) and voice tensors
+            # Voice can be: string (voice ID), string with formula, or pre-loaded tensor
+            if isinstance(voice, str):
+                # Handle voice formulas (weighted voice mixing)
+                if "*" in voice:
+                    loaded_voice = self._load_voice_formula(voice)
+                else:
+                    # Validate and load voice
+                    if voice not in KOKORO_VOICES:
+                        raise TTSGenerationError(f"Unknown voice: {voice}")
+                    loaded_voice = voice
             else:
-                # Validate and load voice
-                if voice not in KOKORO_VOICES:
-                    raise TTSGenerationError(f"Unknown voice: {voice}")
+                # Voice is already a tensor (pre-loaded weighted voice)
                 loaded_voice = voice
 
             # Generate audio chunks
@@ -338,6 +347,37 @@ class KokoroAdapter(LocalTTSAdapter):
             error_msg = f"Failed to generate audio with Kokoro: {str(e)}"
             self.log_error(error_msg)
             raise TTSGenerationError(error_msg)
+
+    def load_single_voice(self, voice_id: str):
+        """
+        Load a single voice tensor for use in voice formula mixing.
+        
+        This method exposes the Kokoro pipeline's voice tensor loading capability
+        for use in weighted voice mixing formulas.
+        
+        Args:
+            voice_id: The voice ID (e.g., "af_alloy")
+            
+        Returns:
+            Voice tensor (numpy array or torch tensor)
+            
+        Raises:
+            TTSGenerationError: If voice loading fails
+        """
+        if not self._is_initialized:
+            raise ValueError("Adapter not initialized. Call initialize() first.")
+        
+        if not voice_id:
+            raise ValueError("voice_id cannot be empty")
+        
+        try:
+            self.log_debug(f"Loading voice tensor for: {voice_id}")
+            voice_tensor = self._pipeline.load_single_voice(voice_id)
+            return voice_tensor
+        except Exception as e:
+            error_msg = f"Failed to load voice tensor for '{voice_id}': {str(e)}"
+            self.log_error(error_msg)
+            raise ValueError(error_msg)
 
     def cleanup(self) -> None:
         """Clean up Kokoro resources"""
